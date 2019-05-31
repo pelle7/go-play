@@ -36,3 +36,5 @@ void odroid_display_lock_nes_display();
 void odroid_display_unlock_nes_display();
 void odroid_display_lock_sms_display();
 void odroid_display_unlock_sms_display();
+
+void my_display_test(int c);

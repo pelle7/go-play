@@ -18,6 +18,7 @@
 #include "../components/odroid/odroid_system.h"
 #include "../components/odroid/odroid_display.h"
 #include "../components/odroid/odroid_sdcard.h"
+#include "../components/odroid/odroid_ui.h"
 
 #include <dirent.h>
 
@@ -44,6 +45,16 @@ bool scaling_enabled = true;
 bool previous_scaling_enabled = true;
 
 volatile bool videoTaskIsRunning = false;
+
+char *my_odroid_debug_rom_file() {
+	/*
+	char *tmp = (char*)malloc(64);
+	sprintf(tmp, "/sd/roms/sms/_debug.sms");
+	return tmp;
+	*/
+	return NULL;
+}
+
 void videoTask(void *arg)
 {
     uint8_t* param;
@@ -244,6 +255,53 @@ static void LoadState(const char* cartName)
     Volume = odroid_settings_Volume_get();
 }
 
+bool DoSaveState(const char* pathName) {
+	odroid_system_led_set(1);
+	odroid_display_lock_sms_display();
+    odroid_display_drain_spi();
+
+    FILE* f = fopen(pathName, "w");
+
+    if (f == NULL)
+    {
+        printf("SaveState: fopen save failed\n");
+        odroid_system_led_set(0);
+        odroid_display_unlock_sms_display();
+        return false;
+    }
+    else
+    {
+        system_save_state(f);
+        fclose(f);
+
+        printf("SaveState: system_save_state OK.\n");
+    }
+
+    odroid_display_unlock_sms_display();
+    odroid_system_led_set(0);
+    return true;
+}
+
+bool DoLoadState(const char* pathName) {
+    FILE* f = fopen(pathName, "r");
+    if (f == NULL)
+    {
+        printf("LoadState: fopen load failed\n");
+        odroid_display_unlock_sms_display();
+        return false;
+    }
+    else
+    {
+        system_load_state(f);
+        fclose(f);
+
+        printf("LoadState: loadstate OK.\n");
+    }
+
+    odroid_display_unlock_sms_display();
+    return true;
+}
+
 static void PowerDown()
 {
     uint16_t* param = 1;
@@ -313,6 +371,7 @@ void system_manage_sram(uint8 *sram, int slot, int mode)
 void app_main(void)
 {
     printf("smsplusgx (%s-%s).\n", COMPILEDATE, GITREV);
+    my_odroid_debug_start();
 
     framebuffer[0] = heap_caps_malloc(256 * 192, MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
     if (!framebuffer[0]) abort();
@@ -608,6 +667,8 @@ void app_main(void)
     bool ignoreMenuButton = previousState.values[ODROID_INPUT_MENU];
 
     scaling_enabled = odroid_settings_ScaleDisabled_get(ODROID_SCALE_DISABLE_SMS) ? false : true;
+    
+    my_odroid_debug_enter_loop();
 
     while (true)
     {
@@ -636,10 +697,9 @@ void app_main(void)
             PowerDown();
         }
 
-        if (previousState.values[ODROID_INPUT_VOLUME] && !joystick.values[ODROID_INPUT_VOLUME])
+        if (joystick.values[ODROID_INPUT_VOLUME])
         {
-            odroid_audio_volume_change();
-            printf("main: Volume=%d\n", odroid_audio_volume_get());
+            myui_test();
         }
 
         if (!ignoreMenuButton && previousState.values[ODROID_INPUT_MENU] && !joystick.values[ODROID_INPUT_MENU])
@@ -751,8 +811,13 @@ void app_main(void)
         if (0 || (frame % 2) == 0)
         {
             system_frame(0);
-
-            xQueueSend(vidQueue, &bitmap.data, portMAX_DELAY);
+			if (!config_speedup) {
+            		xQueueSend(vidQueue, &bitmap.data, portMAX_DELAY);
+            	} else {
+            		if ((frame % 10) == 0) {
+            			xQueueSend(vidQueue, &bitmap.data, portMAX_DELAY);
+            		}
+            	}
 
             currentFramebuffer = currentFramebuffer ? 0 : 1;
             bitmap.data = framebuffer[currentFramebuffer];
@@ -762,6 +827,7 @@ void app_main(void)
             system_frame(1);
         }
 
+        if (!config_speedup) {
         // Create a buffer for audio if needed
         if (!audioBuffer || audioBufferCount < snd.sample_count)
         {
@@ -778,7 +844,7 @@ void app_main(void)
 
             printf("app_main: Created audio buffer (%d bytes).\n", bufferSize);
         }
-
+		
         // Process audio
         for (int x = 0; x < snd.sample_count; x++)
         {
@@ -800,8 +866,9 @@ void app_main(void)
         }
 
         // send audio
-
-        odroid_audio_submit((short*)audioBuffer, snd.sample_count - 1);
+        
+		odroid_audio_submit((short*)audioBuffer, snd.sample_count - 1);
+        }
 
 
         stopTime = xthal_get_ccount();

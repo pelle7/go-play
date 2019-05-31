@@ -15,6 +15,7 @@
 #include "driver/rtc_io.h"
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
+#include "esp_sleep.h"
 
 #include "../components/gnuboy/loader.h"
 #include "../components/gnuboy/hw.h"
@@ -38,7 +39,7 @@
 #include "../components/odroid/odroid_audio.h"
 #include "../components/odroid/odroid_system.h"
 #include "../components/odroid/odroid_sdcard.h"
-
+#include "../components/odroid/odroid_ui.h"
 
 extern int debug_trace;
 
@@ -108,7 +109,13 @@ void run_to_vblank()
   //vid_end();
   if ((frame % 2) == 0)
   {
-      xQueueSend(vidQueue, &framebuffer, portMAX_DELAY);
+  	  if (!config_speedup) {
+      	xQueueSend(vidQueue, &framebuffer, portMAX_DELAY);
+      } else {
+      	if ((frame % 10) == 0) {
+      		xQueueSend(vidQueue, &framebuffer, portMAX_DELAY);
+      	}
+      }
 
       // swap buffers
       currentBuffer = currentBuffer ? 0 : 1;
@@ -221,7 +228,9 @@ void audioTask(void* arg)
     }
     else
     {
-        pcm_submit();
+    		if (!config_speedup) {
+        		pcm_submit();
+        }
     }
 
     xQueueReceive(audioQueue, &param, portMAX_DELAY);
@@ -347,6 +356,50 @@ static void LoadState(const char* cartName)
     Volume = odroid_settings_Volume_get();
 }
 
+bool DoSaveState(const char* pathName)
+{
+	odroid_system_led_set(1);
+    FILE* f = fopen(pathName, "w");
+    if (f == NULL)
+    {
+        printf("%s: fopen save failed\n", __func__);
+        odroid_system_led_set(0);
+        return false;
+    }
+
+    savestate(f);
+    fclose(f);
+
+    printf("%s: savestate OK.\n", __func__);
+    odroid_system_led_set(0);
+    return true;
+}
+
+bool DoLoadState(const char* pathName)
+{
+    FILE* f = fopen(pathName, "r");
+    if (f == NULL)
+    {
+        printf("LoadState: fopen load failed\n");
+        return false;
+    }
+    else
+    {
+        loadstate(f);
+        fclose(f);
+
+        vram_dirty();
+        pal_dirty();
+        sound_dirty();
+        mem_updatemap();
+
+        printf("LoadState: loadstate OK.\n");
+        return true;
+    }
+}
+
+
+
 static void PowerDown()
 {
     uint16_t* param = 1;
@@ -412,12 +465,11 @@ static void DoMenuHome()
     esp_restart();
 }
 
-
-
 void app_main(void)
 {
     printf("gnuboy (%s-%s).\n", COMPILEDATE, GITREV);
-
+    my_odroid_debug_start();
+    
     nvs_flash_init();
 
     odroid_system_init();
@@ -583,7 +635,7 @@ void app_main(void)
     uint totalElapsedTime = 0;
     uint actualFrameCount = 0;
     odroid_gamepad_state lastJoysticState;
-
+    
     ushort menuButtonFrameCount = 0;
     bool ignoreMenuButton = lastJoysticState.values[ODROID_INPUT_MENU];
 
@@ -592,11 +644,12 @@ void app_main(void)
     {
         emu_reset();
     }
-
-
+	
     scaling_enabled = odroid_settings_ScaleDisabled_get(ODROID_SCALE_DISABLE_GB) ? false : true;
 
     odroid_input_gamepad_read(&lastJoysticState);
+    
+    my_odroid_debug_enter_loop();
 
     while (true)
     {
@@ -630,7 +683,7 @@ void app_main(void)
 
         if (!ignoreMenuButton && lastJoysticState.values[ODROID_INPUT_MENU] && !joystick.values[ODROID_INPUT_MENU])
         {
-            // Save state
+        		// Save state
             gpio_set_level(GPIO_NUM_2, 1);
 
             //DoMenu();
@@ -640,13 +693,12 @@ void app_main(void)
         }
 
 
-        if (!lastJoysticState.values[ODROID_INPUT_VOLUME] && joystick.values[ODROID_INPUT_VOLUME])
+        // if (!lastJoysticState.values[ODROID_INPUT_VOLUME] && joystick.values[ODROID_INPUT_VOLUME])
+        if (joystick.values[ODROID_INPUT_VOLUME])
         {
-            odroid_audio_volume_change();
-            printf("main: Volume=%d\n", odroid_audio_volume_get());
+            myui_test();
         }
-
-
+        
         // Scaling
         if (joystick.values[ODROID_INPUT_START] && !lastJoysticState.values[ODROID_INPUT_RIGHT] && joystick.values[ODROID_INPUT_RIGHT])
         {
@@ -666,8 +718,7 @@ void app_main(void)
         pad_set(PAD_A, joystick.values[ODROID_INPUT_A]);
         pad_set(PAD_B, joystick.values[ODROID_INPUT_B]);
 
-
-        startTime = xthal_get_ccount();
+		startTime = xthal_get_ccount();
         run_to_vblank();
         stopTime = xthal_get_ccount();
 

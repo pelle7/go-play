@@ -20,7 +20,6 @@ static const char* NvsKey_StartAction = "StartAction";
 static const char* NvsKey_ScaleDisabled = "ScaleDisabled";
 static const char* NvsKey_AudioSink = "AudioSink";
 
-
 char* odroid_util_GetFileName(const char* path)
 {
 	int length = strlen(path);
@@ -205,7 +204,7 @@ void odroid_settings_Volume_set(int32_t value)
 char* odroid_settings_RomFilePath_get()
 {
     char* result = NULL;
-
+    
 	// Open
 	nvs_handle my_handle;
 	esp_err_t err = nvs_open(NvsNamespace, NVS_READWRITE, &my_handle);

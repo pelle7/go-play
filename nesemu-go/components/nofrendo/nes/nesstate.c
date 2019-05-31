@@ -614,6 +614,46 @@ void load_sram()
     odroid_display_unlock_nes_display();
 }
 
+bool DoLoadState(const char* pathName) {
+	bool rc = true;
+	odroid_display_lock_nes_display();
+    odroid_display_drain_spi();
+    
+    esp_err_t r = odroid_sdcard_open(SD_BASE_PATH);
+	if (r != ESP_OK) {
+        rc = false;
+    } else {
+    		state_load(pathName);
+	    r = odroid_sdcard_close();
+		if (r != ESP_OK) {
+        		rc = false;
+    		}
+    }
+    odroid_display_unlock_nes_display();
+    return rc;
+}
+
+bool DoSaveState(const char* pathName) {
+	bool rc = true;
+	odroid_display_lock_nes_display();
+    odroid_display_drain_spi();
+
+    esp_err_t r = odroid_sdcard_open(SD_BASE_PATH);
+	if (r != ESP_OK)
+    {
+        rc = false;
+    } else {
+        state_save(pathName);
+        r = odroid_sdcard_close();
+		if (r != ESP_OK)
+        {
+            rc = false;
+        }
+    }
+    odroid_display_unlock_nes_display();
+    return rc;
+}
+
 /*
 ** $Log: nesstate.c,v $
 ** Revision 1.2  2001/04/27 14:37:11  neil

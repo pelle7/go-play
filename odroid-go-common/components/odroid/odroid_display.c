@@ -1486,3 +1486,28 @@ void odroid_display_unlock_sms_display()
 
     xSemaphoreGive(sms_mutex);
 }
+
+void my_display_test(int c) {
+	odroid_display_lock_gb_display();
+        {
+	         short x, y;
+	        // clear the buffer
+	        for (int i = 0; i < LINE_BUFFERS; ++i)
+	        {
+	            memset(line[i], c, 320 * sizeof(uint16_t) * LINE_COUNT);
+	        }
+	
+	        // clear the screen
+	        send_reset_drawing(0, 0, 320, 240);
+	
+	        for (y = 0; y < 240; y += LINE_COUNT)
+	        {
+	            uint16_t* line_buffer = line_buffer_get();
+	            send_continue_line(line_buffer, 320, LINE_COUNT);
+	            break;
+	        }
+        }
+        send_continue_wait();
+
+    		odroid_display_unlock_gb_display();
+}

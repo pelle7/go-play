@@ -49,6 +49,7 @@
 #include "../odroid/odroid_system.h"
 #include "../odroid/odroid_display.h"
 #include "../odroid/odroid_input.h"
+#include "../odroid/odroid_ui.h"
 
 
 #define DEFAULT_SAMPLERATE   32000
@@ -61,6 +62,8 @@ odroid_volume_level Volume;
 odroid_battery_state battery;
 int scaling_enabled = 1;
 int previous_scaling_enabled = 1;
+
+int speed_frame_counter = 0;
 
 //Seemingly, this will be called only once. Should call func with a freq of frequency,
 int osd_installtimer(int frequency, void *func, int funcsize, void *counter, int countersize)
@@ -80,6 +83,9 @@ static void (*audio_callback)(void *buffer, int length) = NULL;
 
 void do_audio_frame() {
 #if CONFIG_SOUND_ENA
+if (config_speedup) {
+	return;
+}
 		int remaining = DEFAULT_SAMPLERATE / NES_REFRESH_RATE;
 		while(remaining)
 		{
@@ -240,6 +246,11 @@ static void free_write(int num_dirties, rect_t *dirty_rects)
 
 static uint8_t lcdfb[256 * 224];
 static void custom_blit(bitmap_t *bmp, int num_dirties, rect_t *dirty_rects) {
+	if (config_speedup) {
+		if (speed_frame_counter++%10!=0) {
+			return;
+		}
+	}
     if (bmp->line[0] != NULL)
     {
         memcpy(lcdfb, bmp->line[0], 256 * 224);
@@ -400,9 +411,9 @@ static int ConvertJoystickInput()
 			result |= (1 << 6);
 
 
-    if (!previousJoystickState.values[ODROID_INPUT_VOLUME] && state.values[ODROID_INPUT_VOLUME])
+    if (state.values[ODROID_INPUT_VOLUME])
     {
-        odroid_audio_volume_change();
+        myui_test();
     }
 
     if (!ignoreMenuButton && previousJoystickState.values[ODROID_INPUT_MENU] && state.values[ODROID_INPUT_MENU])

@@ -6,7 +6,7 @@
 #include "driver/rtc_io.h"
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
-
+#include "esp_sleep.h"
 #include "odroid_input.h"
 
 static bool system_initialized = false;
