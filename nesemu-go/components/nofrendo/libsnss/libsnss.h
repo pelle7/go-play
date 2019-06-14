@@ -333,6 +333,8 @@ extern "C" {
 /* general file manipulation routines */
 SNSS_RETURN_CODE SNSS_OpenFile (SNSS_FILE **snssFile, const char *filename,
                                 SNSS_OPEN_MODE mode);
+SNSS_RETURN_CODE SNSS_OpenFileRaw (SNSS_FILE **snssFile, FILE *file,
+                                SNSS_OPEN_MODE mode);
 SNSS_RETURN_CODE SNSS_CloseFile (SNSS_FILE **snssFile);
 
 /* block traversal */

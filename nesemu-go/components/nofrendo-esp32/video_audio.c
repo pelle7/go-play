@@ -287,11 +287,11 @@ static void videoTask(void *arg) {
 	}
 
 
-    odroid_display_lock_nes_display();
+    odroid_display_lock();
 
     odroid_display_show_hourglass();
 
-    odroid_display_unlock_nes_display();
+    odroid_display_unlock();
     //odroid_display_drain_spi();
 
     exitVideoTaskFlag = true;
@@ -359,6 +359,7 @@ static void PowerDown()
 static odroid_gamepad_state previousJoystickState;
 static bool ignoreMenuButton;
 static ushort powerFrameCount;
+static bool restart_menu = false;
 
 static int ConvertJoystickInput()
 {
@@ -411,9 +412,9 @@ static int ConvertJoystickInput()
 			result |= (1 << 6);
 
 
-    if (state.values[ODROID_INPUT_VOLUME])
+    if (state.values[ODROID_INPUT_VOLUME] || restart_menu)
     {
-        myui_test();
+        restart_menu = odroid_ui_menu(restart_menu);
     }
 
     if (!ignoreMenuButton && previousJoystickState.values[ODROID_INPUT_MENU] && state.values[ODROID_INPUT_MENU])

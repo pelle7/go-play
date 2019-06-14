@@ -42,7 +42,7 @@ static inline byte* GetRomPtr(short bank)
 			//printf("GetRomPtr: Loading bank=%d, slot=%d, bit=%d.\n", bank, slot, bit);
 
 			// Stop the SPI bus
-			odroid_display_lock_gb_display();
+			odroid_display_lock();
 
 			//odroid_display_drain_spi();
 
@@ -87,7 +87,7 @@ static inline byte* GetRomPtr(short bank)
 
 			//printf("%s: bank=%d, result=%p\n", __func__, bank, (void*)PSRAM + OFFSET);
 
-			odroid_display_unlock_gb_display();
+			odroid_display_unlock();
 		}
 	}
 

@@ -45,7 +45,6 @@ static const char *TAG = "main";
 int app_main(void)
 {
 	printf("nesemu (%s-%s).\n", COMPILEDATE, GITREV);
-	my_odroid_debug_start();
 
 	nvs_flash_init();
 
@@ -189,7 +188,8 @@ int app_main(void)
 
 	printf("NoFrendo start!\n");
 
-	my_odroid_debug_enter_loop();
+    QuickSaveSetBuffer( (void*)(0x3f800000 + (0x100000 * 1)) );
+    	odroid_ui_debug_enter_loop();
 	char* args[1] = { fileName };
 	nofrendo_main(1, args);
 

@@ -23,3 +23,4 @@ void odroid_audio_init(ODROID_AUDIO_SINK sink, int sample_rate);
 void odroid_audio_terminate();
 void odroid_audio_submit(short* stereoAudioBuffer, int frameCount);
 int odroid_audio_sample_rate_get();
+void odroid_audio_mute();

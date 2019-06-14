@@ -5,8 +5,7 @@
 
 extern bool config_speedup;
 
-void myui_test();
-void myui_header();
+bool odroid_ui_menu(bool restart_menu);
+void odroid_ui_debug_enter_loop();
 
-void my_odroid_debug_enter_loop();
-void my_odroid_debug_start();
+void QuickSaveSetBuffer(void* data);

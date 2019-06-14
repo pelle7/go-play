@@ -192,11 +192,11 @@ void videoTask(void *arg)
 
 
     // Draw hourglass
-    odroid_display_lock_gb_display();
+    odroid_display_lock();
 
     odroid_display_show_hourglass();
 
-    odroid_display_unlock_gb_display();
+    odroid_display_unlock();
 
 
     videoTaskIsRunning = false;
@@ -356,48 +356,24 @@ static void LoadState(const char* cartName)
     Volume = odroid_settings_Volume_get();
 }
 
-bool DoSaveState(const char* pathName)
+bool QuickSaveState(FILE* f)
 {
-	odroid_system_led_set(1);
-    FILE* f = fopen(pathName, "w");
-    if (f == NULL)
-    {
-        printf("%s: fopen save failed\n", __func__);
-        odroid_system_led_set(0);
-        return false;
-    }
-
-    savestate(f);
-    fclose(f);
-
-    printf("%s: savestate OK.\n", __func__);
-    odroid_system_led_set(0);
+	savestate(f);
+	fclose(f);
     return true;
 }
 
-bool DoLoadState(const char* pathName)
+bool QuickLoadState(FILE *f)
 {
-    FILE* f = fopen(pathName, "r");
-    if (f == NULL)
-    {
-        printf("LoadState: fopen load failed\n");
-        return false;
-    }
-    else
-    {
-        loadstate(f);
-        fclose(f);
-
-        vram_dirty();
-        pal_dirty();
-        sound_dirty();
-        mem_updatemap();
-
-        printf("LoadState: loadstate OK.\n");
-        return true;
-    }
+    loadstate(f);
+    fclose(f);
+    
+    vram_dirty();
+    pal_dirty();
+    sound_dirty();
+    mem_updatemap();
+    return true;
 }
-
 
 
 static void PowerDown()
@@ -468,7 +444,6 @@ static void DoMenuHome()
 void app_main(void)
 {
     printf("gnuboy (%s-%s).\n", COMPILEDATE, GITREV);
-    my_odroid_debug_start();
     
     nvs_flash_init();
 
@@ -649,7 +624,10 @@ void app_main(void)
 
     odroid_input_gamepad_read(&lastJoysticState);
     
-    my_odroid_debug_enter_loop();
+    //byte* ptr = (byte*)(0x3f800000 + 0x300000 + (0xbe7a & 0x1fff));
+    	// 0x100000 * 3
+    	QuickSaveSetBuffer( (void*)(0x3f800000 + (0x100000 * 3) + (0x100000 / 2)));
+    odroid_ui_debug_enter_loop();
 
     while (true)
     {
@@ -696,7 +674,12 @@ void app_main(void)
         // if (!lastJoysticState.values[ODROID_INPUT_VOLUME] && joystick.values[ODROID_INPUT_VOLUME])
         if (joystick.values[ODROID_INPUT_VOLUME])
         {
-            myui_test();
+            bool restart_menu = odroid_ui_menu(restart_menu);
+            while (restart_menu) {
+            uint8_t tmp = currentBuffer ? 0 : 1;
+      		  xQueueSend(vidQueue, &displayBuffer[tmp], portMAX_DELAY);
+		      restart_menu = odroid_ui_menu(restart_menu);
+            }
         }
         
         // Scaling

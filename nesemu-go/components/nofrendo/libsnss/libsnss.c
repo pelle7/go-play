@@ -247,6 +247,51 @@ SNSS_OpenFile (SNSS_FILE **snssFile, const char *filename, SNSS_OPEN_MODE mode)
 /**************************************************************************/
 
 SNSS_RETURN_CODE
+SNSS_OpenFileRaw (SNSS_FILE **snssFile, FILE *file, SNSS_OPEN_MODE mode)
+{
+   *snssFile = malloc(sizeof(SNSS_FILE));
+   if (NULL == *snssFile)
+   {
+       abort();
+      return SNSS_OUT_OF_MEMORY;
+   }
+
+   /* zero the memory */
+   memset (*snssFile, 0, sizeof(SNSS_FILE));
+
+   (*snssFile)->mode = mode;
+
+   if (SNSS_OPEN_READ == mode)
+   {
+      (*snssFile)->fp = file;
+   }
+   else
+   {
+      (*snssFile)->fp = file;
+      (*snssFile)->headerBlock.numberOfBlocks = 0;
+   }
+
+   if (NULL == (*snssFile)->fp)
+   {
+       //abort();
+      free(*snssFile);
+      *snssFile = NULL;
+      return SNSS_OPEN_FAILED;
+   }
+
+   if (SNSS_OPEN_READ == mode)
+   {
+      return SNSS_ReadFileHeader(*snssFile);
+   }
+   else
+   {
+      return SNSS_WriteFileHeader(*snssFile);
+   }
+}
+
+/**************************************************************************/
+
+SNSS_RETURN_CODE
 SNSS_CloseFile (SNSS_FILE **snssFile)
 {
    int prevLoc;

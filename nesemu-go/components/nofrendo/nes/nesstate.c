@@ -373,7 +373,7 @@ void load_mapperblock(nes_t *state, SNSS_FILE *snssFile)
 }
 
 
-static int state_save(char* fn)
+static int state_save(char* fn, FILE *file)
 {
    SNSS_FILE *snssFile;
    SNSS_RETURN_CODE status;
@@ -387,7 +387,11 @@ static int state_save(char* fn)
    printf("state_save: fn='%s'\n", fn);
 
    /* open our state file for writing */
-   status = SNSS_OpenFile(&snssFile, fn, SNSS_OPEN_WRITE);
+   if (!file) {
+      status = SNSS_OpenFile(&snssFile, fn, SNSS_OPEN_WRITE);
+   } else {
+      status = SNSS_OpenFileRaw(&snssFile, file, SNSS_OPEN_WRITE);
+   }
    if (SNSS_OK != status)
       goto _error;
 
@@ -451,7 +455,7 @@ _error:
 
 extern bool forceConsoleReset;
 
-static int state_load(char* fn)
+static int state_load(char* fn, FILE *file)
 {
    SNSS_FILE *snssFile;
    SNSS_RETURN_CODE status;
@@ -469,7 +473,11 @@ static int state_load(char* fn)
    printf("state_load: fn='%s'\n", fn);
 
    /* open our file for reading */
-   status = SNSS_OpenFile(&snssFile, fn, SNSS_OPEN_READ);
+   if (!file) { 
+      status = SNSS_OpenFile(&snssFile, fn, SNSS_OPEN_READ);
+   } else {
+   	  status = SNSS_OpenFileRaw(&snssFile, file, SNSS_OPEN_READ);
+   }
    if (SNSS_OK != status)
    {
        printf("state_load: file '%s' could not be opened.\n", fn);
@@ -540,7 +548,7 @@ _error:
 
 void save_sram()
 {
-    odroid_display_lock_nes_display();
+    odroid_display_lock();
     odroid_display_drain_spi();
 
     char* romPath = odroid_settings_RomFilePath_get();
@@ -559,7 +567,7 @@ void save_sram()
         char* pathName = odroid_sdcard_create_savefile_path(SD_BASE_PATH, fileName);
         if (!pathName) abort();
 
-        state_save(pathName);
+        state_save(pathName, NULL);
 
         free(pathName);
         free(fileName);
@@ -573,12 +581,12 @@ void save_sram()
         }
     }
 
-    odroid_display_unlock_nes_display();
+    odroid_display_unlock();
 }
 
 void load_sram()
 {
-    odroid_display_lock_nes_display();
+    odroid_display_lock();
     odroid_display_drain_spi();
 
     char* romName = odroid_settings_RomFilePath_get();
@@ -597,7 +605,7 @@ void load_sram()
         char* pathName = odroid_sdcard_create_savefile_path(SD_BASE_PATH, fileName);
         if (!pathName) abort();
 
-        state_load(pathName);
+        state_load(pathName, NULL);
 
         free(pathName);
         free(fileName);
@@ -611,47 +619,19 @@ void load_sram()
         }
     }
 
-    odroid_display_unlock_nes_display();
+    odroid_display_unlock();
 }
 
-bool DoLoadState(const char* pathName) {
-	bool rc = true;
-	odroid_display_lock_nes_display();
-    odroid_display_drain_spi();
-    
-    esp_err_t r = odroid_sdcard_open(SD_BASE_PATH);
-	if (r != ESP_OK) {
-        rc = false;
-    } else {
-    		state_load(pathName);
-	    r = odroid_sdcard_close();
-		if (r != ESP_OK) {
-        		rc = false;
-    		}
-    }
-    odroid_display_unlock_nes_display();
-    return rc;
+bool QuickSaveState(FILE* f)
+{
+	state_save("FILE-REF", f);
+    return true;
 }
 
-bool DoSaveState(const char* pathName) {
-	bool rc = true;
-	odroid_display_lock_nes_display();
-    odroid_display_drain_spi();
-
-    esp_err_t r = odroid_sdcard_open(SD_BASE_PATH);
-	if (r != ESP_OK)
-    {
-        rc = false;
-    } else {
-        state_save(pathName);
-        r = odroid_sdcard_close();
-		if (r != ESP_OK)
-        {
-            rc = false;
-        }
-    }
-    odroid_display_unlock_nes_display();
-    return rc;
+bool QuickLoadState(FILE* f)
+{
+    state_load("FILE-REF", f);
+    return true;
 }
 
 /*
