@@ -361,7 +361,14 @@ odroid_ui_func_toggle_rc odroid_ui_func_toggle_speedup(odroid_ui_entry *entry, o
 }
 
 odroid_ui_func_toggle_rc odroid_ui_func_toggle_volume(odroid_ui_entry *entry, odroid_gamepad_state *joystick) {
-	odroid_audio_volume_change();
+    odroid_volume_level old = odroid_audio_volume_get();
+    if (joystick->values[ODROID_INPUT_A] || joystick->values[ODROID_INPUT_RIGHT]) {
+        old = (old+1)%ODROID_VOLUME_LEVEL_COUNT;
+    } else if (joystick->values[ODROID_INPUT_LEFT]) {
+        old = (old-1 + ODROID_VOLUME_LEVEL_COUNT)%ODROID_VOLUME_LEVEL_COUNT;
+    }
+	odroid_audio_volume_set(old);
+	odroid_settings_Volume_set(old);
 	return ODROID_UI_FUNC_TOGGLE_RC_CHANGED;
 }
 
@@ -499,7 +506,6 @@ int exec_menu(bool *restart_menu, odroid_ui_func_window_init_def func_window_ini
 }
 
 void odroid_ui_debug_enter_loop() {
-	odroid_settings_Volume_set(ODROID_VOLUME_LEVEL1);
 	printf("odroid_ui_debug_enter_loop: go\n");
 }
 
