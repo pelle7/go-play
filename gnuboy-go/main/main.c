@@ -471,8 +471,52 @@ odroid_ui_func_toggle_rc menu_gb_pal_toggle(odroid_ui_entry *entry, odroid_gamep
     return ODROID_UI_FUNC_TOGGLE_RC_MENU_RESTART;
 }
 
+extern struct rtc rtc;
+
+void menu_gb_rtc_day_update(odroid_ui_entry *entry) {
+    sprintf(entry->text, "%-9s: %d", "rtc-day", rtc.d);
+}
+
+odroid_ui_func_toggle_rc menu_gb_rtc_day_toggle(odroid_ui_entry *entry, odroid_gamepad_state *joystick) {
+    if (joystick->values[ODROID_INPUT_RIGHT] || joystick->values[ODROID_INPUT_A]) {
+        rtc.d = (rtc.d + 1)%365;
+    } else if (joystick->values[ODROID_INPUT_LEFT]) {
+        rtc.d = (rtc.d - 1 + 365)%365;
+    }
+    return ODROID_UI_FUNC_TOGGLE_RC_CHANGED;
+}
+
+void menu_gb_rtc_hour_update(odroid_ui_entry *entry) {
+    sprintf(entry->text, "%-9s: %d", "rtc-hour", rtc.h);
+}
+
+odroid_ui_func_toggle_rc menu_gb_rtc_hour_toggle(odroid_ui_entry *entry, odroid_gamepad_state *joystick) {
+    if (joystick->values[ODROID_INPUT_RIGHT] || joystick->values[ODROID_INPUT_A]) {
+        rtc.h = (rtc.h + 1)%24;
+    } else if (joystick->values[ODROID_INPUT_LEFT]) {
+        rtc.h = (rtc.h - 1 + 24)%24;
+    }
+    return ODROID_UI_FUNC_TOGGLE_RC_CHANGED;
+}
+
+void menu_gb_rtc_minute_update(odroid_ui_entry *entry) {
+    sprintf(entry->text, "%-9s: %d", "rtc-min", rtc.m);
+}
+
+odroid_ui_func_toggle_rc menu_gb_rtc_minute_toggle(odroid_ui_entry *entry, odroid_gamepad_state *joystick) {
+    if (joystick->values[ODROID_INPUT_RIGHT] || joystick->values[ODROID_INPUT_A]) {
+        rtc.m = (rtc.m + 1)%60;
+    } else if (joystick->values[ODROID_INPUT_LEFT]) {
+        rtc.m = (rtc.m - 1 + 60)%60;
+    }
+    return ODROID_UI_FUNC_TOGGLE_RC_CHANGED;
+}
+
 void menu_gb_init(odroid_ui_window *window) {
     odroid_ui_create_entry(window, &menu_gb_pal_update, &menu_gb_pal_toggle);
+    odroid_ui_create_entry(window, &menu_gb_rtc_day_update, &menu_gb_rtc_day_toggle);
+    odroid_ui_create_entry(window, &menu_gb_rtc_hour_update, &menu_gb_rtc_hour_toggle);
+    odroid_ui_create_entry(window, &menu_gb_rtc_minute_update, &menu_gb_rtc_minute_toggle);
 }
 
 void app_main(void)
