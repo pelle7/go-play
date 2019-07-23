@@ -41,10 +41,11 @@ static bool quicksave_done = false;
 
 const char* SD_TMP_PATH_SAVE = "/sd/odroid/data/.quicksav.dat";
 
-#define color_default 0x632c
+#define COLOR_RGB(r,g,b) ( (((r)<<12)&0xf800) + (((g)<<7)&0x07e0) + (((b)<<1)&0x001f) )
+#define color_default COLOR_RGB(5,5,5)
 #define color_selected 0xffff
 #define color_black 0x0000
-#define color_bg_default 0x00ff
+#define color_bg_default COLOR_RGB(0,0,4)
     
 char buf[42];
 
