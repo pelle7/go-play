@@ -30,8 +30,6 @@
 
 #include <string.h>
 
-#include "hourglass_empty_black_48dp.h"
-
 #include "../components/odroid/odroid_settings.h"
 #include "../components/odroid/odroid_input.h"
 #include "../components/odroid/odroid_display.h"
@@ -237,121 +235,9 @@ void audioTask(void* arg)
   while (1) {}
 }
 
-
-static void SaveState()
-{
-    // Save sram
-    odroid_input_battery_monitor_enabled_set(0);
-    odroid_system_led_set(1);
-
-    char* romPath = odroid_settings_RomFilePath_get();
-    if (romPath)
-    {
-        char* fileName = odroid_util_GetFileName(romPath);
-        if (!fileName) abort();
-
-        char* pathName = odroid_sdcard_create_savefile_path(SD_BASE_PATH, fileName);
-        if (!pathName) abort();
-
-        FILE* f = fopen(pathName, "w");
-        if (f == NULL)
-        {
-            printf("%s: fopen save failed\n", __func__);
-            abort();
-        }
-
-        savestate(f);
-        fclose(f);
-
-        printf("%s: savestate OK.\n", __func__);
-
-        free(pathName);
-        free(fileName);
-        free(romPath);
-    }
-    else
-    {
-        FILE* f = fopen(StateFileName, "w");
-        if (f == NULL)
-        {
-            printf("SaveState: fopen save failed\n");
-        }
-        else
-        {
-            savestate(f);
-            fclose(f);
-
-            printf("SaveState: savestate OK.\n");
-        }
-    }
-
-
-    odroid_system_led_set(0);
-    odroid_input_battery_monitor_enabled_set(1);
-}
-
-static void LoadState(const char* cartName)
-{
-    char* romName = odroid_settings_RomFilePath_get();
-    if (romName)
-    {
-        char* fileName = odroid_util_GetFileName(romName);
-        if (!fileName) abort();
-
-        char* pathName = odroid_sdcard_create_savefile_path(SD_BASE_PATH, fileName);
-        if (!pathName) abort();
-
-        FILE* f = fopen(pathName, "r");
-        if (f == NULL)
-        {
-            printf("LoadState: fopen load failed\n");
-        }
-        else
-        {
-            loadstate(f);
-            fclose(f);
-
-            vram_dirty();
-            pal_dirty();
-            sound_dirty();
-            mem_updatemap();
-
-            printf("LoadState: loadstate OK.\n");
-        }
-
-        free(pathName);
-        free(fileName);
-        free(romName);
-    }
-    else
-    {
-        FILE* f = fopen(StateFileName, "r");
-        if (f == NULL)
-        {
-            printf("LoadState: fopen load failed\n");
-        }
-        else
-        {
-            loadstate(f);
-            fclose(f);
-
-            vram_dirty();
-            pal_dirty();
-            sound_dirty();
-            mem_updatemap();
-
-            printf("LoadState: loadstate OK.\n");
-        }
-    }
-
-	pal_set(odroid_settings_GBPalette_get());
-    Volume = odroid_settings_Volume_get();
-}
-
 bool QuickSaveState(FILE* f)
 {
 	savestate(f);
-	fclose(f);
     return true;
 }
 
@@ -359,6 +245,7 @@ bool QuickLoadState(FILE *f)
 {
     loadstate(f);
     fclose(f);
+    odroid_display_unlock();
     
     vram_dirty();
     pal_dirty();
@@ -367,40 +254,7 @@ bool QuickLoadState(FILE *f)
     return true;
 }
 
-static void PowerDown()
-{
-    uint16_t* param = 1;
-
-    // Clear audio to prevent studdering
-    printf("PowerDown: stopping audio.\n");
-
-    xQueueSend(audioQueue, &param, portMAX_DELAY);
-    while (AudioTaskIsRunning) {}
-
-
-    // Stop tasks
-    printf("PowerDown: stopping tasks.\n");
-
-    xQueueSend(vidQueue, &param, portMAX_DELAY);
-    while (videoTaskIsRunning) {}
-
-
-    // state
-    printf("PowerDown: Saving state.\n");
-    SaveState();
-
-    // LCD
-    printf("PowerDown: Powerdown LCD panel.\n");
-    ili9341_poweroff();
-
-    odroid_system_sleep();
-
-
-    // Should never reach here
-    abort();
-}
-
-static void DoMenuHome()
+void DoMenuHome(bool save)
 {
     esp_err_t err;
     uint16_t* param = 1;
@@ -418,47 +272,10 @@ static void DoMenuHome()
     xQueueSend(vidQueue, &param, portMAX_DELAY);
     while (videoTaskIsRunning) {}
 
-
-    // state
-    printf("PowerDown: Saving state.\n");
-    SaveState();
-
-
-    // Set menu application
-    odroid_system_application_set(0);
-
-
-    // Reset
-    esp_restart();
-}
-static void DoMenuHomeNoSave()
-{
-    esp_err_t err;
-    uint16_t* param = 1;
-
-    // Clear audio to prevent studdering
-    printf("PowerDown: stopping audio.\n");
-
-    xQueueSend(audioQueue, &param, portMAX_DELAY);
-    while (AudioTaskIsRunning) {}
-
-
-    // Stop tasks
-    printf("PowerDown: stopping tasks.\n");
-
-    xQueueSend(vidQueue, &param, portMAX_DELAY);
-    while (videoTaskIsRunning) {}
-
-
-    // Set menu application
-    odroid_system_application_set(0);
-
-
-    // Reset
-    esp_restart();
+    DoReboot(save);
 }
 
-uint restart_menu_timer = 0;
+uint menu_restart_timer = 0;
 
 void menu_gb_pal_update(odroid_ui_entry *entry) {
     sprintf(entry->text, "%-9s: %d", "pal", pal_get());
@@ -467,7 +284,7 @@ void menu_gb_pal_update(odroid_ui_entry *entry) {
 odroid_ui_func_toggle_rc menu_gb_pal_toggle(odroid_ui_entry *entry, odroid_gamepad_state *joystick) {
     pal_next();
     odroid_settings_GBPalette_set(pal_get());
-    restart_menu_timer = 4;
+    menu_restart_timer = 4;
     return ODROID_UI_FUNC_TOGGLE_RC_MENU_RESTART;
 }
 
@@ -529,61 +346,7 @@ void app_main(void)
 
     odroid_input_gamepad_init();
 
-
-
-    // Boot state overrides
-    bool forceConsoleReset = false;
-
-    switch (esp_sleep_get_wakeup_cause())
-    {
-        case ESP_SLEEP_WAKEUP_EXT0:
-        {
-            printf("app_main: ESP_SLEEP_WAKEUP_EXT0 deep sleep wake\n");
-            break;
-        }
-
-        case ESP_SLEEP_WAKEUP_EXT1:
-        case ESP_SLEEP_WAKEUP_TIMER:
-        case ESP_SLEEP_WAKEUP_TOUCHPAD:
-        case ESP_SLEEP_WAKEUP_ULP:
-        case ESP_SLEEP_WAKEUP_UNDEFINED:
-        {
-            printf("app_main: Non deep sleep startup\n");
-
-            odroid_gamepad_state bootState = odroid_input_read_raw();
-
-            if (bootState.values[ODROID_INPUT_MENU])
-            {
-                // Force return to factory app to recover from
-                // ROM loading crashes
-
-                // Set menu application
-                odroid_system_application_set(0);
-
-                // Reset
-                esp_restart();
-            }
-
-            if (bootState.values[ODROID_INPUT_START])
-            {
-                // Reset emulator if button held at startup to
-                // override save state
-                forceConsoleReset = true;
-            }
-
-            break;
-        }
-        default:
-            printf("app_main: Not a deep sleep reset\n");
-            break;
-    }
-
-    if (odroid_settings_StartAction_get() == ODROID_START_ACTION_RESTART)
-    {
-        forceConsoleReset = true;
-        odroid_settings_StartAction_set(ODROID_START_ACTION_NORMAL);
-    }
-
+    check_boot_cause();
 
     // Display
     ili9341_prepare();
@@ -672,16 +435,10 @@ void app_main(void)
     if (audioBuffer[0] == 0 || audioBuffer[1] == 0)
         abort();
 
-
     sound_reset();
-
-
     lcd_begin();
-
-
     // Load state
-    LoadState(rom.name);
-
+    DoStartupPost();
 
     uint startTime;
     uint stopTime;
@@ -689,77 +446,31 @@ void app_main(void)
     uint actualFrameCount = 0;
     odroid_gamepad_state lastJoysticState;
 
-    ushort menuButtonFrameCount = 0;
-    bool ignoreMenuButton = lastJoysticState.values[ODROID_INPUT_MENU];
-
-    // Reset if button held at startup
-    if (forceConsoleReset)
-    {
-        emu_reset();
-    }
-
-
     scaling_enabled = odroid_settings_ScaleDisabled_get(ODROID_SCALE_DISABLE_GB) ? false : true;
 
     odroid_input_gamepad_read(&lastJoysticState);
     
     	QuickSaveSetBuffer( (void*)(0x3f800000 + (0x100000 * 3) + (0x100000 / 2)));
-    odroid_ui_debug_enter_loop();
-    bool restart_menu = false;
+    ODROID_UI_MENU_HANDLER_INIT_V1(lastJoysticState)
 
     while (true)
     {
         odroid_gamepad_state joystick;
         odroid_input_gamepad_read(&joystick);
 
-        if (ignoreMenuButton)
+        ODROID_UI_MENU_HANDLER_LOOP_V2(lastJoysticState, joystick, DoMenuHome);
+
+        if (joystick.values[ODROID_INPUT_VOLUME] || menu_restart)
         {
-            ignoreMenuButton = lastJoysticState.values[ODROID_INPUT_MENU];
-        }
-
-        if (!ignoreMenuButton && lastJoysticState.values[ODROID_INPUT_MENU] && joystick.values[ODROID_INPUT_MENU])
-        {
-            ++menuButtonFrameCount;
-        }
-        else
-        {
-            menuButtonFrameCount = 0;
-        }
-
-        //if (!lastJoysticState.Menu && joystick.Menu)
-        if (menuButtonFrameCount > 60 * 1)
-        {
-            // Save state
-            gpio_set_level(GPIO_NUM_2, 1);
-
-            DoMenuHome();
-
-            gpio_set_level(GPIO_NUM_2, 0);
-        }
-
-        if (!ignoreMenuButton && lastJoysticState.values[ODROID_INPUT_MENU] && !joystick.values[ODROID_INPUT_MENU])
-        {
-            // Save state
-            //gpio_set_level(GPIO_NUM_2, 1);
-
-            //DoMenu();
-            DoMenuHomeNoSave();
-
-            gpio_set_level(GPIO_NUM_2, 0);
-        }
-
-
-        if (joystick.values[ODROID_INPUT_VOLUME] || restart_menu)
-        {
-            if (restart_menu_timer > 0) {
-               restart_menu_timer--;
+            if (menu_restart_timer > 0) {
+               menu_restart_timer--;
             } else {
             do {
               
-              restart_menu = odroid_ui_menu_ext(restart_menu, &menu_gb_init);
+              menu_restart = odroid_ui_menu_ext(menu_restart, &menu_gb_init);
               uint8_t tmp = currentBuffer ? 0 : 1;
               xQueueSend(vidQueue, &displayBuffer[tmp], portMAX_DELAY);
-            } while(restart_menu_timer == 0 && restart_menu);
+            } while(menu_restart_timer == 0 && menu_restart);
             }
         }
 

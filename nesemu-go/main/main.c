@@ -83,55 +83,7 @@ int app_main(void)
     //printf("osd_init: ili9341_prepare\n");
     ili9341_prepare();
 
-    switch (esp_sleep_get_wakeup_cause())
-    {
-        case ESP_SLEEP_WAKEUP_EXT0:
-        {
-            printf("app_main: ESP_SLEEP_WAKEUP_EXT0 deep sleep reset\n");
-            break;
-        }
-
-        case ESP_SLEEP_WAKEUP_EXT1:
-        case ESP_SLEEP_WAKEUP_TIMER:
-        case ESP_SLEEP_WAKEUP_TOUCHPAD:
-        case ESP_SLEEP_WAKEUP_ULP:
-        case ESP_SLEEP_WAKEUP_UNDEFINED:
-        {
-            printf("app_main: Unexpected deep sleep reset\n");
-            odroid_gamepad_state bootState = odroid_input_read_raw();
-
-            if (bootState.values[ODROID_INPUT_MENU])
-            {
-                // Force return to menu to recover from
-                // ROM loading crashes
-
-                // Set menu application
-                odroid_system_application_set(0);
-
-                // Reset
-                esp_restart();
-            }
-
-            if (bootState.values[ODROID_INPUT_START])
-            {
-                // Reset emulator if button held at startup to
-                // override save state
-                forceConsoleReset = true; //emu_reset();
-            }
-        }
-            break;
-
-        default:
-            printf("app_main: Not a deep sleep reset\n");
-            break;
-    }
-
-    if (odroid_settings_StartAction_get() == ODROID_START_ACTION_RESTART)
-    {
-        forceConsoleReset = true;
-        odroid_settings_StartAction_set(ODROID_START_ACTION_NORMAL);
-    }
-
+    check_boot_cause();
 
 	// Load ROM
 	char* romPath = odroid_settings_RomFilePath_get();
@@ -173,13 +125,6 @@ int app_main(void)
 		if (fileSize == 0)
         {
             odroid_display_show_sderr(ODROID_SD_ERR_BADFILE);
-            abort();
-        }
-
-		r = odroid_sdcard_close();
-		if (r != ESP_OK)
-        {
-            odroid_display_show_sderr(ODROID_SD_ERR_NOCARD);
             abort();
         }
 

@@ -296,8 +296,7 @@ static void vidTaskCallback(void *arg) {
         bool scale_changed = (previous_scaling_enabled != scaling_enabled);
         if (scale_changed)
         {
-           // Clear display
-           ili9341_blank_screen();
+           ili9341_clear(0);
            previous_scaling_enabled = scaling_enabled;
            if (scaling_enabled) {
                odroid_display_set_scale(NES_SCREEN_WIDTH, NES_VISIBLE_HEIGHT,
@@ -337,62 +336,26 @@ static void osd_initinput()
 {
 }
 
+static odroid_gamepad_state previousJoystickState;
+static bool ignoreMenuButton;
+static ushort menuButtonFrameCount;
 
-static void SaveState()
+void DoMenuHome(bool save)
 {
-    printf("Saving state.\n");
-
-    odroid_input_battery_monitor_enabled_set(0);
-    odroid_system_led_set(1);
-
-    save_sram();
-
-    odroid_system_led_set(0);
-    odroid_input_battery_monitor_enabled_set(1);
-
-    printf("Saving state OK.\n");
-}
-
-static void PowerDown()
-{
-    // Stop tasks
-    printf("PowerDown: stopping tasks.\n");
-
-    // Clear audio to prevent stuttering
+    printf("Stopping video queue.\n");
     odroid_audio_terminate();
 
     void *exitVideoTask = NULL;
     xQueueSend(vidQueue, &exitVideoTask, portMAX_DELAY);
     while (vidTaskIsRunning) { vTaskDelay(10); }
 
-    // state
-    printf("PowerDown: Saving state.\n");
-    SaveState();
+    //odroid_display_drain_spi();
 
-    // LCD
-    printf("PowerDown: Powerdown LCD panel.\n");
-    ili9341_poweroff();
-
-    printf("PowerDown: Entering deep sleep.\n");
-    odroid_system_sleep();
-
-    // Should never reach here
-    abort();
+    DoReboot(save);
 }
-
-
-static odroid_gamepad_state previousJoystickState;
-static bool ignoreMenuButton;
-static ushort powerFrameCount;
 
 static int ConvertJoystickInput()
 {
-    if (ignoreMenuButton)
-    {
-        ignoreMenuButton = previousJoystickState.values[ODROID_INPUT_MENU];
-    }
-
-
     odroid_gamepad_state state;
     odroid_input_gamepad_read(&state);
 
@@ -447,56 +410,7 @@ static int ConvertJoystickInput()
         } while(restart_menu);
     }
 
-    if (!ignoreMenuButton && previousJoystickState.values[ODROID_INPUT_MENU] && state.values[ODROID_INPUT_MENU])
-    {
-        ++powerFrameCount;
-    }
-    else
-    {
-        powerFrameCount = 0;
-    }
-
-    // Note: this will cause an exception on 2nd Core in Debug mode
-    if (powerFrameCount > /*60*/ 30 * 1)
-    {
-        printf("Stopping video queue.\n");
-
-        odroid_audio_terminate();
-
-        void *exitVideoTask = NULL;
-        xQueueSend(vidQueue, &exitVideoTask, portMAX_DELAY);
-        while (vidTaskIsRunning) { vTaskDelay(10); }
-
-        //odroid_display_drain_spi();
-
-        SaveState();
-
-
-        // Set menu application
-        odroid_system_application_set(0);
-
-
-        // Reset
-        esp_restart();
-    }
-
-    if (!ignoreMenuButton && previousJoystickState.values[ODROID_INPUT_MENU] && !state.values[ODROID_INPUT_MENU])
-    {
-        odroid_audio_terminate();
-
-        printf("Stopping video queue.\n");
-
-        void *exitVideoTask = NULL;
-        xQueueSend(vidQueue, &exitVideoTask, portMAX_DELAY);
-        while (vidTaskIsRunning) { vTaskDelay(10); }
-
-        // Set menu application
-        odroid_system_application_set(0);
-
-
-        // Reset
-        esp_restart();
-    }
+    ODROID_UI_MENU_HANDLER_LOOP_V2(previousJoystickState, state, DoMenuHome);
 
     // Scaling
     if (state.values[ODROID_INPUT_START] && !previousJoystickState.values[ODROID_INPUT_RIGHT] && state.values[ODROID_INPUT_RIGHT])
@@ -566,7 +480,7 @@ static int logprint(const char *string)
 ** Startup
 */
 // Boot state overrides
-bool forceConsoleReset = false;
+extern bool forceConsoleReset;
 
 int osd_init()
 {
@@ -587,7 +501,7 @@ int osd_init()
    ignoreMenuButton = previousJoystickState.values[ODROID_INPUT_MENU];
 
 
-   ili9341_blank_screen();
+   ili9341_clear(0);
 
    vidQueue = xQueueCreate(1, sizeof(struct update_meta *));
    xTaskCreatePinnedToCore(&vidTaskCallback, "vidTask", 2048, NULL, 5, NULL, 1);

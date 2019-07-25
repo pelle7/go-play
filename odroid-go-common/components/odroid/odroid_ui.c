@@ -11,6 +11,9 @@
 #include "odroid_display.h"
 #include "odroid_input.h"
 #include "odroid_audio.h"
+#include "odroid_sdcard.h"
+#include "odroid_settings.h"
+#include <stdio.h>
 #include <string.h>
 //#include <stdint.h>
 //#include <stddef.h>
@@ -24,12 +27,12 @@ bool MyQuickLoadState();
 bool MyQuickSaveState();
 
 extern bool scaling_enabled;
-
+bool forceConsoleReset = false;
 bool config_speedup = false;
 
 static bool short_cut_menu_open = false;
 
-static uint16_t *framebuffer = NULL;
+uint16_t *odroid_ui_framebuffer = NULL;
 
 // 0x7D000
 #define QUICK_SAVE_BUFFER_SIZE (512 * 1024)
@@ -37,15 +40,9 @@ static void *quicksave_buffer = NULL;
 
 static bool quicksave_done = false;
 
-// const char* SD_TMP_PATH = "/sd/odroid/tmp";
+extern const char* SD_BASE_PATH;
 
 const char* SD_TMP_PATH_SAVE = "/sd/odroid/data/.quicksav.dat";
-
-#define COLOR_RGB(r,g,b) ( (((r)<<12)&0xf800) + (((g)<<7)&0x07e0) + (((b)<<1)&0x001f) )
-#define color_default COLOR_RGB(5,5,5)
-#define color_selected 0xffff
-#define color_black 0x0000
-#define color_bg_default COLOR_RGB(0,0,4)
     
 char buf[42];
 
@@ -57,16 +54,15 @@ void QuickSaveSetBuffer(void* data) {
 
 void clean_draw_buffer() {
 	int size = 320 * 8 * sizeof(uint16_t);
-	memset(framebuffer, 0, size);
+	memset(odroid_ui_framebuffer, 0, size);
 }
 
 void prepare() {
-	if (framebuffer) return;
+	if (odroid_ui_framebuffer) return;
 	printf("odroid_ui_menu: SETUP buffer\n");
 	int size = 320 * 8 * sizeof(uint16_t);
-    //uint16_t *framebuffer = (uint16_t *)heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    framebuffer = (uint16_t *)malloc(size);
-	if (!framebuffer) abort();
+    odroid_ui_framebuffer = (uint16_t *)malloc(size);
+	if (!odroid_ui_framebuffer) abort();
 	clean_draw_buffer();
 }
 
@@ -82,7 +78,7 @@ void renderToStdout(char *bitmap) {
     }
 }
 
-void renderToFrameBuffer(int xo, int yo, char *bitmap, uint16_t color, uint16_t color_bg, uint16_t width) {
+inline void renderToFrameBuffer(int xo, int yo, char *bitmap, uint16_t color, uint16_t color_bg, uint16_t width) {
     int x,y;
     int set;
     for (x=0; x < 8; x++) {
@@ -91,12 +87,28 @@ void renderToFrameBuffer(int xo, int yo, char *bitmap, uint16_t color, uint16_t 
             set = bitmap[x] & 1 << y;
             // int offset = xo + x + ((yo + y) * width);
             int offset = xo + y + ((yo + x) * width);
-            framebuffer[offset] = set?color:color_bg; 
+            odroid_ui_framebuffer[offset] = set?color:color_bg; 
         }
     }
 }
 
-void render(int offset_x, int offset_y, uint16_t text_len, const char *text, uint16_t color, uint16_t color_bg) {
+inline void render2(int offset_x, int offset_y, const char *text, uint16_t color, uint16_t color_bg) {
+    int len = strlen(text);
+    int x, y;
+    uint16_t width = len * 8;
+    //char pp[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    x = offset_x * 8;
+    y = offset_y * 8;
+    for (int i = 0; i < len; i++) {
+       unsigned char c;
+       c = text[i];
+       renderToFrameBuffer(x, y, font8x8_basic[c], color, color_bg, width);
+       //renderToFrameBuffer(x, y, &font8x8_basic2[((uint16_t)c)*8], color, color_bg, width);
+       x+=8;
+    }
+}
+
+inline void render(int offset_x, int offset_y, uint16_t text_len, const char *text, uint16_t color, uint16_t color_bg) {
 	int len = strlen(text);
     int x, y;
     uint16_t width = text_len * 8;
@@ -120,17 +132,17 @@ void render(int offset_x, int offset_y, uint16_t text_len, const char *text, uin
 
 void draw_line(const char *text) {
 	render(0,0,320/8,text, color_selected, 0);
-	ili9341_write_frame_rectangleLE(0, 0, 320, 8, framebuffer);
+	ili9341_write_frame_rectangleLE(0, 0, 320, 8, odroid_ui_framebuffer);
 }
 
 void draw_char(uint16_t x, uint16_t y, char c, uint16_t color) {
 	renderToFrameBuffer(0, 0, font8x8_basic[(unsigned char)c], color, 0, 8);
-	ili9341_write_frame_rectangleLE(x, y, 8, 8, framebuffer);
+	ili9341_write_frame_rectangleLE(x, y, 8, 8, odroid_ui_framebuffer);
 }
 
 void draw_chars(uint16_t x, uint16_t y, uint16_t width, char *text, uint16_t color, uint16_t color_bg) {
 	render(0, 0, width, text, color, color_bg);
-	ili9341_write_frame_rectangleLE(x, y, width * 8, 8, framebuffer);
+	ili9341_write_frame_rectangleLE(x, y, width * 8, 8, odroid_ui_framebuffer);
 }
 
 void draw_empty_line() {
@@ -150,7 +162,7 @@ void draw_fill(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t
 		int i = 0;
 		int count = height_block * width;
 		while (i < count) {
-			framebuffer[i] = color;
+			odroid_ui_framebuffer[i] = color;
 			i++;
 		}
 		
@@ -158,17 +170,17 @@ void draw_fill(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t
 		   if (yy + height_block > ymax) {
 		   	height_block = ymax - yy;
 		   }
-		   ili9341_write_frame_rectangleLE(x, yy, width, height_block, framebuffer);
+		   ili9341_write_frame_rectangleLE(x, yy, width, height_block, odroid_ui_framebuffer);
 		   yy += height_block;
 		}
 		return;
 	}
 	int i = 0;
 	while (i < count) {
-		framebuffer[i] = color;
+		odroid_ui_framebuffer[i] = color;
 		i++;
 	}
-	ili9341_write_frame_rectangleLE(x, y, width, height, framebuffer);
+	ili9341_write_frame_rectangleLE(x, y, width, height, odroid_ui_framebuffer);
 }
 
 void wait_for_key(int last_key) {
@@ -193,6 +205,7 @@ bool odroid_ui_menu_ext(bool restart_menu, odroid_ui_func_window_init_def func_w
 	bool shortcut_key = false;
 	odroid_gamepad_state lastJoysticState;
 
+	usleep(25*1000UL);
 	prepare();
 	clean_draw_buffer();
 	odroid_input_gamepad_read(&lastJoysticState);
@@ -295,6 +308,25 @@ void odroid_ui_window_clear(odroid_ui_window *window) {
 	draw_fill(window->x - 3, window->y - 3, window->width * 8 + 3 * 2, window->height * 8 + 3 * 2, color_black);
 }
 
+void odroid_ui_windows_draw_border(int x, int y, int width, int height, uint16_t color_bg)
+{
+    draw_fill(x + ADD_2, y - 3, width - ADD_2 * 2, 1, color_bg);
+    draw_fill(x + ADD_1, y - 2, width - ADD_1 * 2, 1, color_bg);
+    draw_fill(x, y - 1, width, 1, color_bg);
+    
+    draw_fill(x, y + height + 0, width, 1, color_bg);
+    draw_fill(x + ADD_1, y + height + 1, width - ADD_1 * 2, 1, color_bg);
+    draw_fill(x + ADD_2, y + height + 2, width - ADD_2 * 2, 1, color_bg);
+    
+    draw_fill(x - 3, y + ADD_2, 1, height - ADD_2 * 2, color_bg);
+    draw_fill(x - 2, y + ADD_1, 1, height - ADD_1 * 2, color_bg);
+    draw_fill(x - 1, y, 1, height, color_bg);
+    
+    draw_fill(x + width, y, 1, height, color_bg);
+    draw_fill(x + width + 1, y + ADD_1, 1, height - ADD_1 * 2, color_bg);
+    draw_fill(x + width + 2, y + ADD_2, 1, height - ADD_2 * 2, color_bg);
+}
+
 void odroid_ui_window_update(odroid_ui_window *window) {
 	char text[64] = " ";
 	
@@ -332,7 +364,7 @@ void odroid_ui_func_update_volume(odroid_ui_entry *entry) {
 }
 
 void odroid_ui_func_update_scale(odroid_ui_entry *entry) {
-	sprintf(entry->text, "%-9s: %d", "scale", scaling_enabled);
+	sprintf(entry->text, "%-9s: %s", "scale", scaling_enabled?"on":"off");
 }
 
 void odroid_ui_func_update_brightness(odroid_ui_entry *entry) {
@@ -355,7 +387,6 @@ void odroid_ui_func_update_quickload(odroid_ui_entry *entry) {
 	}
 }
 
-//
 odroid_ui_func_toggle_rc odroid_ui_func_toggle_speedup(odroid_ui_entry *entry, odroid_gamepad_state *joystick) {
 	config_speedup = !config_speedup;
 	return ODROID_UI_FUNC_TOGGLE_RC_MENU_CLOSE;
@@ -368,9 +399,9 @@ odroid_ui_func_toggle_rc odroid_ui_func_toggle_volume(odroid_ui_entry *entry, od
     } else if (joystick->values[ODROID_INPUT_LEFT]) {
         old = (old-1 + ODROID_VOLUME_LEVEL_COUNT)%ODROID_VOLUME_LEVEL_COUNT;
     }
-	odroid_audio_volume_set(old);
-	odroid_settings_Volume_set(old);
-	return ODROID_UI_FUNC_TOGGLE_RC_CHANGED;
+    odroid_audio_volume_set(old);
+    odroid_settings_Volume_set(old);
+    return ODROID_UI_FUNC_TOGGLE_RC_CHANGED;
 }
 
 odroid_ui_func_toggle_rc odroid_ui_func_toggle_scale(odroid_ui_entry *entry, odroid_gamepad_state *joystick) {
@@ -507,7 +538,9 @@ int exec_menu(bool *restart_menu, odroid_ui_func_window_init_def func_window_ini
 }
 
 void odroid_ui_debug_enter_loop() {
-	printf("odroid_ui_debug_enter_loop: go\n");
+   printf("odroid_ui_debug_enter_loop: go\n");
+   prepare();
+   config_speedup = false;
 }
 
 bool MyQuickSaveState() {
@@ -551,4 +584,278 @@ bool MyQuickLoadState() {
    bool rc = QuickLoadState(fileHandleInMemory);
    fclose(fileHandleInMemory);
    return rc;
+}
+
+int odroid_ui_ask_v2(const char *text, uint16_t color, uint16_t color_bg, int selected_initial)
+{
+    int len = strlen(text) + 2;
+    int x = (320 - (len*8))/2;
+    int y = 112;
+    int x2 = (320 - (9*8))/2;
+    draw_chars(x, y  , len, " ", color, color_bg);
+    draw_chars(x, y+ 8*1, len, " ", color, color_bg);
+    draw_chars(x, y+ 8*2, len, " ", color, color_bg);
+    draw_chars(x, y+ 8*3, len, " ", color, color_bg);
+    odroid_ui_windows_draw_border(x, y, len * 8, 4 * 8, color_bg);
+    draw_chars(x + 8, y+ 8*1, len - 2, text, color, color_bg);
+    int last_key = -1;
+    int rc = selected_initial;
+    int rc_old = -1;
+    uint16_t color_sel = color_bg;
+    uint16_t color_bg_sel = color;
+    while (1)
+    {
+        odroid_gamepad_state joystick;
+        odroid_input_gamepad_read(&joystick);
+        if (last_key >=0) {
+            if (!joystick.values[last_key]) {
+                last_key = -1;
+            }
+        } else {   
+            if (joystick.values[ODROID_INPUT_LEFT]) {
+                last_key = ODROID_INPUT_LEFT;
+                rc = rc==0?1:0;
+            } else if (joystick.values[ODROID_INPUT_RIGHT]) {
+                last_key = ODROID_INPUT_RIGHT;
+                rc = rc==0?1:0;
+            } else if (joystick.values[ODROID_INPUT_A]) {
+                last_key = ODROID_INPUT_A;
+                break;
+            } else if (joystick.values[ODROID_INPUT_B]) {
+                last_key = ODROID_INPUT_B;
+                rc = -1;
+                break;
+            }
+        }
+        if (rc_old != rc)
+        {
+            int nr;
+            nr = 0;
+            draw_chars(x2, y+ 8*2, 5, " Yes", nr==rc?color_sel:color, nr==rc?color_bg_sel:color_bg);
+            nr = 1;
+            draw_chars(x2 + 8*5, y+ 8*2, 4, " No", nr==rc?color_sel:color, nr==rc?color_bg_sel:color_bg);
+            rc_old = rc;
+        }
+        
+        usleep(20*1000UL);
+    }
+    wait_for_key(last_key);
+    return rc;
+}
+
+bool odroid_ui_ask(const char *text)
+{
+    int len = strlen(text);
+    int x = (320 - (len*8))/2;
+    int y = 112;
+    draw_chars(x, y  , len, " ", color_default, color_bg_default);
+    draw_chars(x, y+ 8*1, len, text, color_selected, color_bg_default);
+    draw_chars(x, y+ 8*2, len, " ", color_selected, color_bg_default);
+    int last_key = -1;
+    bool rc = true;
+    while (1)
+    {
+        odroid_gamepad_state joystick;
+        odroid_input_gamepad_read(&joystick);
+        
+        if (joystick.values[ODROID_INPUT_A]) {
+            last_key = ODROID_INPUT_A;
+            rc = true;
+            break;
+        } else if (joystick.values[ODROID_INPUT_B]) {
+            last_key = ODROID_INPUT_B;
+            rc = false;
+            break;
+        }
+        
+        usleep(20*1000UL);
+    }
+    wait_for_key(last_key);
+    return rc;
+}
+
+void SaveState()
+{
+    odroid_input_battery_monitor_enabled_set(0);
+    odroid_system_led_set(1);
+
+    char* romPath = odroid_settings_RomFilePath_get();
+    if (romPath)
+    {
+        odroid_display_lock();
+        odroid_display_drain_spi();
+
+        char* fileName = odroid_util_GetFileName(romPath);
+        if (!fileName) abort();
+
+        char* pathName = odroid_sdcard_create_savefile_path(SD_BASE_PATH, fileName);
+        if (!pathName) abort();
+
+        FILE* f = fopen(pathName, "wb");
+        if (f == NULL)
+        {
+            /*
+            char *index = strrchr(pathName, '/');
+            *index = '\0';
+            DIR* dir = opendir(pathName);
+            if (dir)
+            {
+                closedir(dir);
+                printf("%s: fopen save failed: '%s' ; Folder exists\n", __func__, pathName);
+                abort();
+            }
+            if (mkdir(pathName, 01666) != 0)
+            {
+                printf("%s: fopen save failed: '%s' ; Folder doesn't exists. Could not create\n", __func__, pathName);
+                abort();
+            }
+            *index = '/';
+            f = fopen(pathName, "w");
+            if (f == NULL)
+            {
+               printf("%s: fopen save failed: '%s'\n", __func__, pathName);
+               abort();
+            }
+            */
+            printf("%s: fopen save failed: '%s' ; Can't create file.\n", __func__, pathName);
+            abort();
+        }
+        QuickSaveState(f);
+        fclose(f);
+
+        printf("%s: savestate OK.\n", __func__);
+        odroid_display_unlock();
+
+        free(pathName);
+        free(fileName);
+        free(romPath);
+    } else
+    {
+       printf("ERROR!\n");
+    }
+}
+
+void LoadState()
+{
+    char* romName = odroid_settings_RomFilePath_get();
+    if (romName)
+    {
+        odroid_display_lock();
+        odroid_display_drain_spi();
+
+        char* fileName = odroid_util_GetFileName(romName);
+        if (!fileName) abort();
+
+        char* pathName = odroid_sdcard_create_savefile_path(SD_BASE_PATH, fileName);
+        if (!pathName) abort();
+
+        FILE* f = fopen(pathName, "rb");
+        if (f == NULL)
+        {
+            printf("LoadState: fopen load failed\n");
+        }
+        else
+        {
+            QuickLoadState(f);
+            fclose(f);
+
+            printf("LoadState: loadstate OK.\n");
+        }
+        odroid_display_unlock();
+        free(pathName);
+        free(fileName);
+        free(romName);
+    }
+    else
+    {
+      printf("ERROR\n");
+    }
+}
+
+void check_boot_cause()
+{
+    // Boot state overrides
+    
+    switch (esp_sleep_get_wakeup_cause())
+    {
+        case ESP_SLEEP_WAKEUP_EXT0:
+        {
+            printf("app_main: ESP_SLEEP_WAKEUP_EXT0 deep sleep wake\n");
+            break;
+        }
+
+        case ESP_SLEEP_WAKEUP_EXT1:
+        case ESP_SLEEP_WAKEUP_TIMER:
+        case ESP_SLEEP_WAKEUP_TOUCHPAD:
+        case ESP_SLEEP_WAKEUP_ULP:
+        case ESP_SLEEP_WAKEUP_UNDEFINED:
+        {
+            printf("app_main: Non deep sleep startup\n");
+
+            odroid_gamepad_state bootState = odroid_input_read_raw();
+
+            if (bootState.values[ODROID_INPUT_MENU])
+            {
+                // Force return to factory app to recover from
+                // ROM loading crashes
+
+                // Set menu application
+                odroid_system_application_set(0);
+
+                // Reset
+                esp_restart();
+            }
+
+            if (bootState.values[ODROID_INPUT_START])
+            {
+                // Reset emulator if button held at startup to
+                // override save state
+                forceConsoleReset = true;
+            }
+
+            break;
+        }
+        default:
+            printf("app_main: Not a deep sleep reset\n");
+            break;
+    }
+
+    if (odroid_settings_StartAction_get() == ODROID_START_ACTION_RESTART)
+    {
+        forceConsoleReset = true;
+        odroid_settings_StartAction_set(ODROID_START_ACTION_NORMAL);
+    }
+}
+
+void DoReboot(bool save)
+{
+    odroid_gamepad_state joystick;   
+    odroid_input_gamepad_read(&joystick);
+
+    odroid_display_show_hourglass();
+
+    if (save) gpio_set_level(GPIO_NUM_2, 1);
+
+    // state
+    printf("PowerDown: Saving state.\n");
+    if (!joystick.values[ODROID_INPUT_START] && save) {
+       SaveState();
+    }
+    odroid_display_lock();
+    odroid_sdcard_close();
+    odroid_display_unlock();
+
+    gpio_set_level(GPIO_NUM_2, 0);
+    // Set menu application
+    odroid_system_application_set(0);
+    // Reset
+    esp_restart();
+}
+
+void DoStartupPost()
+{
+    if (!forceConsoleReset)
+    {
+        LoadState();
+    }
 }
