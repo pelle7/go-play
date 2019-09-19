@@ -447,6 +447,7 @@ void app_main(void)
     odroid_gamepad_state lastJoysticState;
 
     scaling_enabled = odroid_settings_ScaleDisabled_get(ODROID_SCALE_DISABLE_GB) ? false : true;
+    pal_set(odroid_settings_GBPalette_get());
 
     odroid_input_gamepad_read(&lastJoysticState);
     
